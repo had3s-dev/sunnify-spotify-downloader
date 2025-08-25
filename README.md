@@ -140,12 +140,34 @@ If you want to run the Sunnify web app locally, follow these steps to set up bot
    The frontend will now be running locally on `http://localhost:3000` and can communicate with the backend on `http://127.0.0.1:5000`.
 
 ---
+
+## Railway Deployment
+
+Deploy the web app (backend + frontend) to Railway using the guide in `RAILWAY.md`.
+
+Quick summary:
+
+- Create two Railway services from these directories:
+  - Backend: `web-app/sunnify-backend/`
+  - Frontend: `web-app/sunnify-webclient/`
+- Set frontend env `NEXT_PUBLIC_API_BASE_URL` (or `API_URL`) to your backend Railway URL.
+- Backend uses `DOWNLOAD_DIR` (defaults to `/tmp/sunnify`).
+
+For detailed steps and notes, see `RAILWAY.md`.
+
+---
+
 ## Technologies Used
 
 ### Frontend Technologies:
-- ⚛️ **React**: Used for building the user interface components.
-- 🚀 **Next.js**: Provides the framework for server-side rendering and routing.
-- 🎨 **Tailwind CSS**: Used for styling and responsive design.
+- **React**: Used for building the user interface components.
+- **Next.js**: Provides the framework for server-side rendering and routing.
+- **Tailwind CSS**: Used for styling and responsive design.
+- **shadcn/ui**: Provides pre-built, customizable UI components.
+- **Lucide React**: Used for icons throughout the application.
+- **React Hooks**: Utilized for state management and side effects.
+- **Fetch API**: Used for making HTTP requests to the backend.
+- **Web Audio API**: Implemented for audio playback functionality.
 - 🧩 **shadcn/ui**: Provides pre-built, customizable UI components.
 - 🔍 **Lucide React**: Used for icons throughout the application.
 - ⚙️ **React Hooks**: Utilized for state management and side effects.

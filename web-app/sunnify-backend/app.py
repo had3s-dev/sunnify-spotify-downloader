@@ -198,7 +198,7 @@ class MusicScraper:
                                     "album": song.get("album", ""),
                                     "cover": song.get("cover", ""),
                                     "releaseDate": song.get("releaseDate", ""),
-                                    "downloadLink": f"/api/download/{filename}"
+                                    "downloadLink": f"/api/download/{filename}?path={playlist_folder_path}"
                                 })
 
                                 yield {
@@ -282,30 +282,68 @@ class MusicScraper:
 
 @app.route('/api/scrape-playlist', methods=['POST'])
 def scrape_playlist():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     spotify_playlist_link = data.get("playlistUrl")
-    download_path = data.get("downloadPath", "/tmp")
+    if not spotify_playlist_link:
+        return jsonify({"error": "Missing required field 'playlistUrl'"}), 400
 
-    if not download_path:
-        return jsonify({"error": "Download path not specified"}), 400
-
-    if not os.path.exists(download_path):
-        return jsonify({"error": "Specified download path does not exist"}), 400
-
-    if not os.access(download_path, os.W_OK):
-        return jsonify({"error": "No write permission for the specified download path"}), 400
+    # Always use a server-side directory for downloads on Railway
+    base_download_dir = os.getenv("DOWNLOAD_DIR", "/tmp/sunnify")
+    os.makedirs(base_download_dir, exist_ok=True)
 
     scraper = MusicScraper()
 
     def generate():
         try:
-            for event in scraper.scrape_playlist(spotify_playlist_link, download_path):
+            for event in scraper.scrape_playlist(spotify_playlist_link, base_download_dir):
                 yield f"data: {json.dumps(event)}\n\n"
         except Exception as e:
             yield f"data: {json.dumps({'event': 'error', 'data': {'message': str(e)}})}\n\n"
 
-    return Response(generate(), mimetype='text/event-stream')
+    resp = Response(generate(), mimetype='text/event-stream')
+    resp.headers['Cache-Control'] = 'no-cache'
+    resp.headers['X-Accel-Buffering'] = 'no'
+    resp.headers['Connection'] = 'keep-alive'
+    return resp
+
+@app.route('/api/scrape-playlist/stream', methods=['GET'])
+def scrape_playlist_stream():
+    spotify_playlist_link = request.args.get("playlistUrl", type=str)
+    if not spotify_playlist_link:
+        return jsonify({"error": "Missing required query param 'playlistUrl'"}), 400
+
+    base_download_dir = os.getenv("DOWNLOAD_DIR", "/tmp/sunnify")
+    os.makedirs(base_download_dir, exist_ok=True)
+
+    scraper = MusicScraper()
+
+    def generate():
+        try:
+            for event in scraper.scrape_playlist(spotify_playlist_link, base_download_dir):
+                yield f"data: {json.dumps(event)}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'event': 'error', 'data': {'message': str(e)}})}\n\n"
+
+    resp = Response(generate(), mimetype='text/event-stream')
+    resp.headers['Cache-Control'] = 'no-cache'
+    resp.headers['X-Accel-Buffering'] = 'no'
+    resp.headers['Connection'] = 'keep-alive'
+    return resp
 
 @app.route('/api/download/<path:filename>')
 def download_file(filename):
-    return send_from_directory(directory=request.args.get('path', ''), filename=filename, as_attachment=True)
+    # Restrict downloads to the configured base directory
+    base_download_dir = os.getenv("DOWNLOAD_DIR", "/tmp/sunnify")
+    requested_dir = request.args.get('path', base_download_dir)
+
+    # Resolve paths to prevent directory traversal
+    base_real = os.path.realpath(base_download_dir)
+    dir_real = os.path.realpath(requested_dir)
+    if not dir_real.startswith(base_real):
+        return jsonify({"error": "Invalid path"}), 400
+
+    return send_from_directory(dir_real, path=filename, as_attachment=True)
+
+if __name__ == "__main__":
+    port = int(os.getenv("PORT", 5000))
+    app.run(host="0.0.0.0", port=port, threaded=True)

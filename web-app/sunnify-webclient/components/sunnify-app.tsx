@@ -44,6 +44,19 @@ export default function SunnifyApp() {
   const [showDeveloperInfo, setShowDeveloperInfo] = useState(false)
   const [showTechInfo, setShowTechInfo] = useState(false)
 
+  // Compute API base for Railway. If NEXT_PUBLIC_API_BASE_URL is set, use it; otherwise rely on Next.js rewrites.
+  const apiBase = process.env.NEXT_PUBLIC_API_BASE_URL || ''
+  const buildApiUrl = (path: string, params?: Record<string, string>) => {
+    const base = apiBase ? apiBase.replace(/\/$/, '') : ''
+    const p = path.startsWith('/') ? path : `/${path}`
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost'
+    const url = new URL(`${base}${p}`, origin)
+    if (params) {
+      for (const [k, v] of Object.entries(params)) url.searchParams.append(k, v)
+    }
+    return url.toString()
+  }
+
   useEffect(() => {
     const text = "   Your Spotify Playlist Companion"
     let i = 0
@@ -61,69 +74,63 @@ export default function SunnifyApp() {
 
   const handleDownload = async () => {
     if (!playlistLink) {
-      toast.error('Please enter a valid Spotify playlist URL');
-      return;
+      toast.error('Please enter a valid Spotify playlist URL')
+      return
     }
-  
-    if (!downloadPath) {
-      toast.error('Please enter a download location');
-      return;
-    }
-  
-    setIsDownloading(true);
-    setDownloadProgress(0);
-    setSongsDownloaded(0);
-    setStatusMessage("Starting download...");
-    setDownloadedTracks([]);
-  
+
+    setIsDownloading(true)
+    setDownloadProgress(0)
+    setSongsDownloaded(0)
+    setStatusMessage('Starting...')
+    setDownloadedTracks([])
+
     try {
-      const response = await fetch('https://coxpynrvnl46ro5bybq7aikbim0vmypk.lambda-url.us-east-2.on.aws/api/scrape-playlist', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          playlistUrl: playlistLink,
-          downloadPath: downloadPath
-        }),
-      });
-  
-      // Check if the response is OK
-      if (!response.ok) {
-        throw new Error('Error while fetching playlist data');
+      const url = buildApiUrl('/api/scrape-playlist/stream', { playlistUrl: playlistLink })
+      const es = new EventSource(url)
+
+      es.onmessage = (e) => {
+        try {
+          const result = JSON.parse(e.data)
+          switch (result.event) {
+            case 'progress':
+              setDownloadProgress(result.data.progress)
+              setSongsDownloaded(prev => prev + 1)
+              setStatusMessage(`Processing: ${result.data.currentTrack.title} - ${result.data.currentTrack.artists}`)
+              break
+            case 'error':
+              toast.error(result.data.message)
+              setStatusMessage(result.data.message)
+              break
+            case 'complete':
+              setPlaylistName(result.data.playlistName)
+              setDownloadedTracks(result.data.tracks)
+              setStatusMessage('Processing completed!')
+              toast.success('Playlist processing completed!')
+              es.close()
+              setIsDownloading(false)
+              break
+            default:
+              console.error('Unknown event type:', result.event)
+              break
+          }
+        } catch (err) {
+          console.error('Failed to parse SSE message', err)
+        }
       }
-  
-      // Parse the entire response after execution finishes (Lambda returns once completed)
-      const result = await response.json();
-      
-      // Process the response data (Lambda will return the completed playlist data)
-      switch (result.event) {
-        case 'progress':
-          setDownloadProgress(result.data.progress);
-          setSongsDownloaded(prev => prev + 1);
-          setStatusMessage(`Processing: ${result.data.currentTrack.title} - ${result.data.currentTrack.artists}`);
-          break;
-        case 'error':
-          toast.error(result.data.message);
-          break;
-        case 'complete':
-          setPlaylistName(result.data.playlistName);
-          setDownloadedTracks(result.data.tracks);
-          setStatusMessage("Processing completed!");
-          toast.success("Playlist processing completed!");
-          break;
-        default:
-          console.error('Unknown event type:', result.event);
-          break;
+
+      es.onerror = (err) => {
+        console.error('SSE error', err)
+        toast.error('An error occurred while processing the playlist')
+        setIsDownloading(false)
+        es.close()
       }
     } catch (error) {
-      console.error('Error:', error);
-      toast.error('An error occurred while processing the playlist');
-    } finally {
-      setIsDownloading(false);
+      console.error('Error:', error)
+      toast.error('An error occurred while starting the process')
+      setIsDownloading(false)
     }
-  };
-    
+  }
+
   const playPauseTrack = (track: Track) => {
     if (isPlaying && currentSong.id === track.id) {
       setIsPlaying(false)
@@ -167,12 +174,12 @@ export default function SunnifyApp() {
             </div>
             <div className="mb-6">
               <label htmlFor="download-path" className="block text-sm font-medium text-white mb-2">
-                Download Path
+                Download Path (optional for web)
               </label>
               <Input
                 id="download-path"
                 type="text"
-                placeholder="C:\Users\YourName\Desktop\Music"
+                placeholder="Server-managed"
                 value={downloadPath}
                 onChange={(e) => setDownloadPath(e.target.value)}
                 className="w-full bg-white/30 text-white placeholder-white/60 border-white/30 focus:border-yellow-400 focus:ring-2 focus:ring-yellow-400 transition-all duration-300"
@@ -181,7 +188,7 @@ export default function SunnifyApp() {
             <Button 
               onClick={handleDownload} 
               className="w-full mb-4 bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-bold py-4 rounded-full transition-all duration-300 transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-yellow-400"
-              disabled={isDownloading || !downloadPath}
+              disabled={isDownloading || !playlistLink}
             >
               {isDownloading ? (
                 <>
